@@ -212,17 +212,22 @@ func checkURL(url string) (int, error) {
 	return resp.StatusCode(), nil
 }
 
+//Process runtime config and execute
+func Process(state *State) {
+	for word := range state.Wordlist.set {
+		responseStatus, error := checkURL(word)
+
+		if error != nil {
+			fmt.Println("Error getting URL ", error)
+		}
+		state.StatusCodes.Add(responseStatus)
+	}
+}
+
 func main() {
 	state := ParseArgs()
 
 	if state != nil {
-		for word := range state.Wordlist.set {
-			responseStatus, error := checkURL(word)
-
-			if error != nil {
-				fmt.Println("Error getting URL ", error)
-			}
-			state.StatusCodes.Add(responseStatus)
-		}
+		Process(state)
 	}
 }
