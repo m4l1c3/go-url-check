@@ -28,6 +28,7 @@ type State struct {
 	OutputFileName string
 	Wordlist       StringSet
 	StatusCodes    IntSet
+	WriteOutput    bool
 }
 
 //Add to StringSet
@@ -60,7 +61,7 @@ func (set *StringSet) ContainsAny(ss []string) bool {
 	return false
 }
 
-// Add an element to a set
+//Add an element to a set
 func (set *IntSet) Add(i int) bool {
 	_, found := set.set[i]
 	set.set[i] = true
@@ -71,6 +72,21 @@ func (set *IntSet) Add(i int) bool {
 func (set *IntSet) Contains(i int) bool {
 	_, found := set.set[i]
 	return found
+}
+
+//WriteOutput writes program output to a file when configured to do so
+func WriteOutput(state *State) (bool, error) {
+	if state.OutputFileName != "" {
+		outputFile, err := os.Create(state.OutputFileName)
+		if err != nil {
+			color.Red("[!] Unable to write to %s, falling back to stdout.\n", state.OutputFileName)
+			return false, err
+		}
+		if outputFile != nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 //ParseWordlist parses a file containing a list of URLs
@@ -130,6 +146,10 @@ func ParseArgs() *State {
 	if URL == "" && wordlist == "" {
 		fmt.Println("[!] Unable to start checking both URL (-u) and Wordlist are invalid (-w)", URL, wordlist)
 		valid = false
+	}
+
+	if *&s.OutputFileName != "" {
+		s.WriteOutput = true
 	}
 
 	if wordlist != "" {
