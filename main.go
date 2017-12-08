@@ -89,15 +89,22 @@ func WriteOutput(state *State) (bool, error) {
 	return false, nil
 }
 
+//FileExists check if file exists before trying to open it
+func FileExists(wordlist string) bool {
+	if _, err := os.Stat(wordlist); err == nil {
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		return true
+	}
+	return false
+}
+
 //ParseWordlist parses a file containing a list of URLs
 func ParseWordlist(state *State, wordlist string) (bool, error) {
 	if wordlist != "" {
-		if _, err := os.Stat(wordlist); err == nil {
-			if err != nil {
-				fmt.Println(err)
-				return false, err
-			}
-
+		if FileExists(wordlist) {
 			file, error := os.Open(wordlist)
 
 			if error != nil {
