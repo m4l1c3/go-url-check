@@ -6,78 +6,119 @@ import (
 	"fmt"
 	"os"
 
+	color "github.com/fatih/color"
 	requests "github.com/hiroakis/go-requests"
 )
 
+//IntSet struct for map of integers
 type IntSet struct {
 	set map[int]bool
 }
 
+//StringSet struct for map of strings
 type StringSet struct {
 	set map[string]bool
 }
 
+//State struct for running state
 type State struct {
 	ProxyURL       string
 	Verbose        bool
 	Threads        int
 	OutputFileName string
-	Wordlist       string
+	Wordlist       StringSet
 	StatusCodes    IntSet
-	URL            string
 }
 
-func ParseWordlist(wordlist string) ([]string, error) {
-	if wordlist != "" {
-		if _, err := os.Stat(wordlist); os.IsNotExist(err) {
-			file, error := OpenFile(wordlist)
-			if error != nil {
-				return nil, error
-			}
-			list, errorTwo := ReadLines(file)
-			if errorTwo != nil {
-				return nil, errorTwo
-			}
-			return list, nil
+//Add to StringSet
+func (set *StringSet) Add(s string) bool {
+	_, found := set.set[s]
+	set.set[s] = true
+	return !found
+}
+
+//AddRand add a list of elements to a set
+func (set *StringSet) AddRange(ss []string) {
+	for _, s := range ss {
+		set.set[s] = true
+	}
+}
+
+//Contains Test if an element is in a set
+func (set *StringSet) Contains(s string) bool {
+	_, found := set.set[s]
+	return found
+}
+
+//ContainsAny Check if any of the elements exist
+func (set *StringSet) ContainsAny(ss []string) bool {
+	for _, s := range ss {
+		if set.set[s] {
+			return true
 		}
 	}
-	return nil, nil
+	return false
 }
 
-func ReadLines(file *File) ([]string, error) {
-	var lines []string
-	scanner := bufio.NewScanner(file)
+// Add an element to a set
+func (set *IntSet) Add(i int) bool {
+	_, found := set.set[i]
+	set.set[i] = true
+	return !found
+}
 
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+//Contains Test if an element is in a set
+func (set *IntSet) Contains(i int) bool {
+	_, found := set.set[i]
+	return found
+}
+
+//ParseWordlist parses a file containing a list of URLs
+func ParseWordlist(state *State, wordlist string) (bool, error) {
+	if wordlist != "" {
+		if _, err := os.Stat(wordlist); err == nil {
+			if err != nil {
+				fmt.Println(err)
+				return false, err
+			}
+
+			file, error := os.Open(wordlist)
+
+			if error != nil {
+				return false, error
+			}
+			defer file.Close()
+
+			var lines []string
+			scanner := bufio.NewScanner(file)
+
+			for scanner.Scan() {
+				lines = append(lines, scanner.Text())
+			}
+			state.Wordlist.AddRange(lines)
+			return true, nil
+		}
 	}
-	return lines, scanner.Err()
+	return false, nil
 }
 
-func OpenFile(filename string) (*File, error) {
-	b, err := os.Open(filename)
-	defer b.Close()
-
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-	return b, nil
-}
-
+//ParseArgs takes runtime arguments and converts into state
 func ParseArgs() *State {
 	var codes string
+	var wordlist string
+	var URL string
 	valid := true
 	s := State{
 		StatusCodes: IntSet{set: map[int]bool{}},
+		Wordlist:    StringSet{set: map[string]bool{}},
 	}
 
 	flag.IntVar(&s.Threads, "t", 10, "Number of concurrent threads")
 	flag.BoolVar(&s.Verbose, "v", false, "Verbose output (errors)")
 	flag.StringVar(&s.ProxyURL, "p", "", "Proxy to use for requests [http(s)://host:port]")
 	flag.StringVar(&s.OutputFileName, "o", "", "Output file to write results to (defaults to stdout)")
-	flag.StringVar(&s.URL, "u", "", "The target URL or Domain")
-	flag.StringVar(&s.Wordlist, "w", "", "Path to the wordlist")
+	flag.StringVar(&URL, "u", "", "The target URL or Domain")
+	flag.StringVar(&wordlist, "w", "", "Path to the wordlist")
 	flag.StringVar(&codes, "s", "200,204,301,302,307", "Positive status codes")
 	flag.Parse()
 
@@ -86,20 +127,26 @@ func ParseArgs() *State {
 		valid = false
 	}
 
-	if s.URL == "" && s.Wordlist == "" {
-		fmt.Println("[!] Unable to start checking both URL (-u) and Wordlist are invalid (-w)", s.URL, s.Wordlist)
+	if URL == "" && wordlist == "" {
+		fmt.Println("[!] Unable to start checking both URL (-u) and Wordlist are invalid (-w)", URL, wordlist)
 		valid = false
+	}
+
+	if wordlist != "" {
+		ParseWordlist(&s, wordlist)
+	} else {
+		s.Wordlist.Add(URL)
 	}
 
 	if valid {
 		Banner(&s)
-		ShowOptions(&s)
 		return &s
 	}
 
 	return nil
 }
 
+//Banner prints the app banner if verbose is true
 func Banner(state *State) {
 	if state.Verbose {
 		fmt.Println("=====================================================================")
@@ -115,27 +162,47 @@ func Banner(state *State) {
 	}
 }
 
-func ShowOptions(s *State) {
+//checkStatusCode evaluates response status codes and prints in a diff color
+func checkStatusCode(url string, statusCode int) {
+	switch {
+	case statusCode > 499:
+		color.Red("[!] %s %d\n", url, statusCode)
+		break
+	case statusCode > 399:
+		color.Magenta("[!] %s %d\n", url, statusCode)
+		break
+	case statusCode > 299:
+		color.Yellow("[!] %s %d\n", url, statusCode)
+		break
+	default:
+		color.Green("[!] %s %d\n", url, statusCode)
+		break
+	}
+}
 
+//checkURL does a GET for a URL
+func checkURL(url string) (int, error) {
+	resp, err := requests.Get(url, nil, nil)
+
+	if err != nil {
+		return 0, err
+	}
+
+	checkStatusCode(url, resp.StatusCode())
+	return resp.StatusCode(), nil
 }
 
 func main() {
 	state := ParseArgs()
-	if state != nil {
-		resp, err := requests.Get("https://google.com/", nil, nil)
 
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		// Response body
-		fmt.Println(resp.Text())
-		// status code
-		fmt.Printf("Code: %d\n", resp.StatusCode())
-		for k, v := range resp.Headers() {
-			// Response Headers
-			fmt.Printf("%s: %s\n", k, v)
+	if state != nil {
+		for word := range state.Wordlist.set {
+			responseStatus, error := checkURL(word)
+
+			if error != nil {
+				fmt.Println("Error getting URL ", error)
+			}
+			state.StatusCodes.Add(responseStatus)
 		}
 	}
-
 }
