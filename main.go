@@ -133,7 +133,7 @@ func WriteOutput(state *State) (bool, error) {
 			if err != nil {
 				color.Red("Error writing file %s\n", err)
 			}
-			if write != nil {
+			if write > 0 {
 				continue
 			}
 		}
@@ -231,16 +231,9 @@ func ParseArgs() *State {
 //Banner prints the app banner if verbose is true
 func Banner(state *State) {
 	if state.Verbose {
-		fmt.Println("=====================================================================")
-		fmt.Println("**                              _            _               _     **")
-		fmt.Println("** 	                       | |          | |             | |    **")
-		fmt.Println("**  __ _  ___ ______ _   _ _ __| |______ ___| |__   ___  ___| | __ **")
-		fmt.Println("** / _` |/ _ \\______| | | | '__| |______/ __| '_ \\ / _ \\/ __| |/ / **")
-		fmt.Println("** |(_| |(_)|     | |_| | |  | |     | (__| | | |  __/ (__|   <  **")
-		fmt.Println("** \\__, |\\___/       \\__,_|_|  |_|      \\___|_| |_|\\___|\\___|_|\\_\\ **")
-		fmt.Println("**  __/ |                                                          **")
-		fmt.Println("** |___/                                                           **")
-		fmt.Println("=====================================================================")
+		color.Cyan("--------------------------------------------------------------")
+		color.Cyan("Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check")
+		color.Cyan("--------------------------------------------------------------")
 	}
 }
 
