@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
 	color "github.com/fatih/color"
-	requests "github.com/hiroakis/go-requests"
 )
 
 //IntSet struct for map of integers
@@ -24,7 +24,7 @@ type StringSet struct {
 
 //URLResponse struct for housing an HTTPResponse
 type URLResponse struct {
-	StatusCode int
+	StatusCode string
 	URL        string
 }
 
@@ -129,7 +129,7 @@ func WriteOutput(state *State) (bool, error) {
 		defer outputFile.Close()
 
 		for u := range state.Responses.set {
-			write, err := outputFile.WriteString(strconv.Itoa(u.StatusCode) + " " + u.URL + "\n")
+			write, err := outputFile.WriteString(u.StatusCode + " " + u.URL + "\n")
 			if err != nil {
 				color.Red("Error writing file %s\n", err)
 			}
@@ -238,20 +238,23 @@ func Banner(state *State) {
 }
 
 //PrintResponse evaluates response status codes and prints in a diff color
-func PrintResponse(url string, statusCode int) {
-	switch {
-	case statusCode > 499:
-		color.Red("[!] %s %d\n", url, statusCode)
-		break
-	case statusCode > 399:
-		color.Magenta("[+] %s %d\n", url, statusCode)
-		break
-	case statusCode > 299:
-		color.Yellow("[+] %s %d\n", url, statusCode)
-		break
-	default:
-		color.Green("[+] %s %d\n", url, statusCode)
-		break
+func PrintResponse(url string, statusCode string) {
+	status, err := strconv.Atoi(statusCode[:strings.Index(statusCode, " ")])
+	if err == nil {
+		switch {
+		case status > 499:
+			color.Red("[!] %s %s\n", url, statusCode)
+			break
+		case status > 399:
+			color.Magenta("[+] %s %s\n", url, statusCode)
+			break
+		case status > 299:
+			color.Yellow("[+] %s %s\n", url, statusCode)
+			break
+		default:
+			color.Green("[+] %s %s\n", url, statusCode)
+			break
+		}
 	}
 }
 
@@ -263,13 +266,14 @@ func PrefixURL(url string) string {
 	return url
 }
 
-//Request issue web request for given URL
-func Request(url string) requests.Response {
-	resp, err := requests.Get(url, nil, nil)
+//Request request using http library
+func Request(url string) *http.Response {
+	resp, err := http.Get(url)
 
 	if err != nil {
 		color.Red("Error checking URL: %s\n", err)
 	}
+	defer resp.Body.Close()
 
 	return resp
 }
@@ -278,9 +282,10 @@ func Request(url string) requests.Response {
 func CheckURL(url string) (URLResponse, error) {
 	PrefixURL(url)
 	resp := Request(url)
-	PrintResponse(url, resp.StatusCode())
+
+	PrintResponse(url, resp.Status)
 	r := URLResponse{
-		StatusCode: resp.StatusCode(),
+		StatusCode: resp.Status,
 		URL:        url,
 	}
 	return r, nil
