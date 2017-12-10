@@ -15,4 +15,4 @@
 debug
 *.debug
 go-url-check
-./*.txt
+*.txt
