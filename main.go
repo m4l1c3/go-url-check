@@ -82,6 +82,24 @@ func (set *StringSet) Add(s string) bool {
 	return !found
 }
 
+// JoinSet join set into single string
+func (set *StringSet) JoinSet() string {
+	values := []string{}
+	for s, _ := range set.set {
+		values = append(values, s)
+	}
+	return strings.Join(values, ",")
+}
+
+// JoinSet join the integer set into a single string
+func (set *IntSet) JoinSet() string {
+	values := []string{}
+	for s, _ := range set.set {
+		values = append(values, strconv.Itoa(s))
+	}
+	return strings.Join(values, ",")
+}
+
 //AddRange add a list of elements to a set
 func (set *StringSet) AddRange(ss []string) {
 	for _, s := range ss {
@@ -233,7 +251,36 @@ func Banner(state *State) {
 	if state.Verbose {
 		color.Cyan("--------------------------------------------------------------")
 		color.Cyan("Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check")
+		Options(state)
 		color.Cyan("--------------------------------------------------------------")
+		fmt.Println("")
+	}
+}
+
+//Options print enabled options to user
+func Options(state *State) {
+	if state.Verbose {
+		fmt.Println("")
+		if state.ProxyURL != "" {
+			color.Cyan("[+] Proxy enabled: %s\n", state.ProxyURL)
+		}
+
+		if state.Threads > 0 {
+			color.Cyan("[+] Number of threads: %d\n", state.Threads)
+		}
+
+		if state.OutputFileName != "" {
+			color.Cyan("[+] Output file: %s\n", state.OutputFileName)
+		}
+
+		if len(state.Wordlist.set) > 0 {
+			color.Cyan("[+] Wordlist: %s\n", state.Wordlist.JoinSet())
+		}
+
+		if len(state.StatusCodes.set) > 0 {
+			color.Cyan("[+] StatusCodes: %s\n", state.StatusCodes.JoinSet())
+		}
+		fmt.Println("")
 	}
 }
 
