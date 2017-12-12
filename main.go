@@ -239,26 +239,26 @@ func ParseArgs() *State {
 	}
 
 	if valid {
-		Banner(&s)
+		PrintBanner(&s)
 		return &s
 	}
 
 	return nil
 }
 
-//Banner prints the app banner if verbose is true
-func Banner(state *State) {
+//PrintBanner prints the app banner if verbose is true
+func PrintBanner(state *State) {
 	if state.Verbose {
 		color.Cyan("--------------------------------------------------------------")
 		color.Cyan("Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check")
-		Options(state)
+		PrintOptions(state)
 		color.Cyan("--------------------------------------------------------------")
 		fmt.Println("")
 	}
 }
 
-//Options print enabled options to user
-func Options(state *State) {
+//PrintOptions print enabled options to user
+func PrintOptions(state *State) {
 	if state.Verbose {
 		fmt.Println("")
 		if state.ProxyURL != "" {
