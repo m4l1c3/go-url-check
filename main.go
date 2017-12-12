@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 
@@ -73,6 +74,8 @@ type State struct {
 	StatusCodes    IntSet
 	WriteOutput    bool
 	Responses      URLResponseSet
+	ShouldClose    bool
+	SignalChannel  chan os.Signal
 }
 
 //Add to StringSet
@@ -341,6 +344,10 @@ func Check(url string) (URLResponse, error) {
 //Process runtime config and execute
 func Process(state *State) {
 	for word := range state.Wordlist.set {
+		if state.ShouldClose {
+			break
+		}
+
 		response, error := Check(word)
 
 		if error != nil {
@@ -354,10 +361,26 @@ func Process(state *State) {
 	}
 }
 
+//StartSignalHandler creates a handler to watch for CTRL+C
+func StartSignalHandler(state *State) {
+	state.SignalChannel = make(chan os.Signal, 1)
+	signal.Notify(state.SignalChannel, os.Interrupt)
+	go func() {
+		for _ = range state.SignalChannel {
+			// caught CTRL+C
+			if state.Verbose {
+				color.Cyan("[!] Keyboard interrupt detected, terminating.")
+				state.ShouldClose = true
+			}
+		}
+	}()
+}
+
 func main() {
 	state := ParseArgs()
 
 	if state != nil {
+		StartSignalHandler(state)
 		Process(state)
 	}
 }
