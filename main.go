@@ -230,12 +230,12 @@ func ParseArgs() *State {
 	flag.Parse()
 
 	if s.Threads < 0 {
-		fmt.Println("[!] Invalid number of threads (-t)", s.Threads)
+		color.Red("[!] Invalid number of threads (-t) %d\n", s.Threads)
 		valid = false
 	}
 
 	if URL == "" && wordlist == "" {
-		fmt.Println("[!] Unable to start checking both URL (-u) and Wordlist are invalid (-w)", URL, wordlist)
+		color.Red("[!] Unable to start checking both URL (-u): %s and Wordlist are invalid (-w) %s\n", URL, wordlist)
 		valid = false
 	}
 
