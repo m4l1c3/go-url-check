@@ -9,9 +9,13 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 
 	color "github.com/fatih/color"
 )
+
+type ProcessorFunc func(s *State, entity string, resultChan chan<- URLResponse)
+type PrintResultFunc func(s *State, r *URLResponse)
 
 //IntSet struct for map of integers
 type IntSet struct {
@@ -76,6 +80,8 @@ type State struct {
 	Responses      URLResponseSet
 	ShouldClose    bool
 	SignalChannel  chan os.Signal
+	Printer        PrintResultFunc
+	Processor      ProcessorFunc
 }
 
 //Add to StringSet
@@ -341,8 +347,54 @@ func Check(url string) (URLResponse, error) {
 	return r, nil
 }
 
+//StartSignalHandler creates a handler to watch for CTRL+C
+func StartSignalHandler(state *State) {
+	state.SignalChannel = make(chan os.Signal, 1)
+	signal.Notify(state.SignalChannel, os.Interrupt)
+	go func() {
+		for _ = range state.SignalChannel {
+			// caught CTRL+C
+			if state.Verbose {
+				color.Cyan("[!] Keyboard interrupt detected, terminating.")
+				state.ShouldClose = true
+			}
+		}
+	}()
+}
+
 //Process runtime config and execute
 func Process(state *State) {
+	// channels used for comms
+	urlChannel := make(chan string, state.Threads)
+	responseChannel := make(chan URLResponse)
+
+	// Use a wait group for waiting for all threads
+	// to finish
+	processorGroup := new(sync.WaitGroup)
+	processorGroup.Add(state.Threads)
+	printerGroup := new(sync.WaitGroup)
+	printerGroup.Add(1)
+
+	for i := 0; i < state.Threads; i++ {
+		go func() {
+			for {
+				url := <-urlChannel
+
+				// Did we reach the end? If so break.
+				if url == "" {
+					break
+				}
+
+				// Mode-specific processing
+				state.Processor(state, url, responseChannel)
+			}
+
+			// Indicate to the wait group that the thread
+			// has finished.
+			processorGroup.Done()
+		}()
+	}
+
 	for word := range state.Wordlist.set {
 		if state.ShouldClose {
 			break
@@ -359,21 +411,6 @@ func Process(state *State) {
 	if state.WriteOutput {
 		WriteOutput(state)
 	}
-}
-
-//StartSignalHandler creates a handler to watch for CTRL+C
-func StartSignalHandler(state *State) {
-	state.SignalChannel = make(chan os.Signal, 1)
-	signal.Notify(state.SignalChannel, os.Interrupt)
-	go func() {
-		for _ = range state.SignalChannel {
-			// caught CTRL+C
-			if state.Verbose {
-				color.Cyan("[!] Keyboard interrupt detected, terminating.")
-				state.ShouldClose = true
-			}
-		}
-	}()
 }
 
 func main() {
