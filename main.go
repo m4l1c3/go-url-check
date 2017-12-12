@@ -85,7 +85,7 @@ func (set *StringSet) Add(s string) bool {
 // JoinSet join set into single string
 func (set *StringSet) JoinSet() string {
 	values := []string{}
-	for s, _ := range set.set {
+	for s := range set.set {
 		values = append(values, s)
 	}
 	return strings.Join(values, ",")
@@ -94,7 +94,7 @@ func (set *StringSet) JoinSet() string {
 // JoinSet join the integer set into a single string
 func (set *IntSet) JoinSet() string {
 	values := []string{}
-	for s, _ := range set.set {
+	for s := range set.set {
 		values = append(values, strconv.Itoa(s))
 	}
 	return strings.Join(values, ",")
@@ -325,8 +325,8 @@ func Request(url string) *http.Response {
 	return resp
 }
 
-//CheckURL does a GET for a URL
-func CheckURL(url string) (URLResponse, error) {
+//Check does a GET for a URL
+func Check(url string) (URLResponse, error) {
 	PrefixURL(url)
 	resp := Request(url)
 
@@ -341,7 +341,7 @@ func CheckURL(url string) (URLResponse, error) {
 //Process runtime config and execute
 func Process(state *State) {
 	for word := range state.Wordlist.set {
-		response, error := CheckURL(word)
+		response, error := Check(word)
 
 		if error != nil {
 			fmt.Println("Error getting URL ", error)
