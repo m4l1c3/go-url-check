@@ -14,8 +14,8 @@ import (
 	color "github.com/fatih/color"
 )
 
-type ProcessorFunc func(s *State, entity string, resultChan chan<- URLResponse)
-type PrintResultFunc func(s *State, r *URLResponse)
+type ProcessorFunc func(entity string, resultChan chan<- URLResponse)
+type PrintResultFunc func(response *URLResponse)
 
 //IntSet struct for map of integers
 type IntSet struct {
@@ -216,6 +216,8 @@ func ParseArgs() *State {
 		StatusCodes: IntSet{set: map[int]bool{}},
 		Wordlist:    StringSet{set: map[string]bool{}},
 		Responses:   URLResponseSet{set: map[URLResponse]bool{}},
+		Processor:   Check,
+		Printer:     PrintResponse,
 	}
 
 	flag.IntVar(&s.Threads, "t", 10, "Number of concurrent threads")
@@ -294,8 +296,11 @@ func PrintOptions(state *State) {
 }
 
 //PrintResponse evaluates response status codes and prints in a diff color
-func PrintResponse(url string, statusCode string) {
+func PrintResponse(response *URLResponse) {
+	var url = response.URL
+	var statusCode = response.StatusCode
 	status, err := strconv.Atoi(statusCode[:strings.Index(statusCode, " ")])
+
 	if err == nil {
 		switch {
 		case status > 499:
@@ -335,16 +340,16 @@ func Request(url string) *http.Response {
 }
 
 //Check does a GET for a URL
-func Check(url string) (URLResponse, error) {
+func Check(url string, responseChannel chan<- URLResponse) {
 	PrefixURL(url)
 	resp := Request(url)
 
-	PrintResponse(url, resp.Status)
+	// PrintResponse(url, resp.Status)
 	r := URLResponse{
 		StatusCode: resp.Status,
 		URL:        url,
 	}
-	return r, nil
+	responseChannel <- r
 }
 
 //StartSignalHandler creates a handler to watch for CTRL+C
@@ -386,7 +391,7 @@ func Process(state *State) {
 				}
 
 				// Mode-specific processing
-				state.Processor(state, url, responseChannel)
+				state.Processor(url, responseChannel)
 			}
 
 			// Indicate to the wait group that the thread
@@ -395,22 +400,37 @@ func Process(state *State) {
 		}()
 	}
 
+	// Single goroutine which handles the results as they
+	// appear from the worker threads.
+	go func() {
+		for r := range responseChannel {
+			state.Printer(&r)
+		}
+		printerGroup.Done()
+	}()
+
 	for word := range state.Wordlist.set {
 		if state.ShouldClose {
 			break
 		}
 
-		response, error := Check(word)
+		// response := Check(word)
+		urlChannel <- word
 
-		if error != nil {
-			fmt.Println("Error getting URL ", error)
-		}
-		state.Responses.Add(response)
+		// if error != nil {
+		// 	fmt.Println("Error getting URL ", error)
+		// }
+		// state.Responses.Add(response)
 	}
 
-	if state.WriteOutput {
-		WriteOutput(state)
-	}
+	close(urlChannel)
+	processorGroup.Wait()
+	close(responseChannel)
+	printerGroup.Wait()
+
+	// if state.WriteOutput {
+	// 	WriteOutput(state)
+	// }
 }
 
 func main() {
