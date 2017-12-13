@@ -14,7 +14,7 @@ import (
 	color "github.com/fatih/color"
 )
 
-type ProcessorFunc func(entity string, resultChan chan<- URLResponse)
+type ProcessorFunc func(entity string, resultChan chan<- URLResponse, state *State)
 type PrintResultFunc func(response *URLResponse)
 
 //IntSet struct for map of integers
@@ -340,7 +340,7 @@ func Request(url string) *http.Response {
 }
 
 //Check does a GET for a URL
-func Check(url string, responseChannel chan<- URLResponse) {
+func Check(url string, responseChannel chan<- URLResponse, state *State) {
 	PrefixURL(url)
 	resp := Request(url)
 
@@ -349,6 +349,7 @@ func Check(url string, responseChannel chan<- URLResponse) {
 		StatusCode: resp.Status,
 		URL:        url,
 	}
+	state.Responses.Add(r)
 	responseChannel <- r
 }
 
@@ -391,7 +392,7 @@ func Process(state *State) {
 				}
 
 				// Mode-specific processing
-				state.Processor(url, responseChannel)
+				state.Processor(url, responseChannel, state)
 			}
 
 			// Indicate to the wait group that the thread
@@ -428,9 +429,9 @@ func Process(state *State) {
 	close(responseChannel)
 	printerGroup.Wait()
 
-	// if state.WriteOutput {
-	// 	WriteOutput(state)
-	// }
+	if state.WriteOutput {
+		WriteOutput(state)
+	}
 }
 
 func main() {
