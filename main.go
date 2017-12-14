@@ -332,8 +332,9 @@ func ParseArgs() *State {
 func PrintBanner(state *State) {
 	if state.Verbose {
 		color.Cyan("--------------------------------------------------------------")
-		color.Cyan("Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check")
 		PrintOptions(state)
+		fmt.Println("")
+		color.Cyan("Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check")
 		color.Cyan("--------------------------------------------------------------")
 		fmt.Println("")
 	}
@@ -342,7 +343,6 @@ func PrintBanner(state *State) {
 //PrintOptions print enabled options to user
 func PrintOptions(state *State) {
 	if state.Verbose {
-		fmt.Println("")
 		if state.ProxyURL != nil && state.ProxyURL.String() != "" {
 			color.Cyan("[+] Proxy enabled: %s\n", state.ProxyURL)
 		}
@@ -362,7 +362,6 @@ func PrintOptions(state *State) {
 		if len(state.StatusCodes.set) > 0 {
 			color.Cyan("[+] StatusCodes: %s\n", state.StatusCodes.JoinSet())
 		}
-		fmt.Println("")
 	}
 }
 
@@ -485,14 +484,7 @@ func Process(state *State) {
 		if state.ShouldClose {
 			break
 		}
-
-		// response := Check(word)
 		urlChannel <- word
-
-		// if error != nil {
-		// 	fmt.Println("Error getting URL ", error)
-		// }
-		// state.Responses.Add(response)
 	}
 
 	close(urlChannel)
