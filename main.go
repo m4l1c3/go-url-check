@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,6 +18,8 @@ import (
 
 type ProcessorFunc func(entity string, resultChan chan<- URLResponse)
 type PrintResultFunc func(response *URLResponse)
+
+// type ProxyUrlFunc func(*http.Request) (*url.Url, error)
 
 //IntSet struct for map of integers
 type IntSet struct {
@@ -70,7 +74,6 @@ func (set *URLResponseSet) ContainsAny(rr []URLResponse) bool {
 
 //State struct for running state
 type State struct {
-	ProxyURL       string
 	Verbose        bool
 	Threads        int
 	OutputFileName string
@@ -82,6 +85,19 @@ type State struct {
 	SignalChannel  chan os.Signal
 	Printer        PrintResultFunc
 	Processor      ProcessorFunc
+	ProxyURL       *url.URL
+	Client         *http.Client
+	FollowRedirect bool
+	InsecureSSL    bool
+}
+
+type RedirectHandler struct {
+	Transport http.RoundTripper
+	State     *State
+}
+
+type RedirectError struct {
+	StatusCode int
 }
 
 //Add to StringSet
@@ -206,11 +222,37 @@ func ParseWordlist(state *State, wordlist string) (bool, error) {
 	return false, nil
 }
 
+func (e *RedirectError) Error() string {
+	return fmt.Sprintf("Redirect code: %d", e.StatusCode)
+}
+
+func (rh *RedirectHandler) RoundTrip(req *http.Request) (resp *http.Response, err error) {
+	if rh.State.FollowRedirect {
+		return rh.Transport.RoundTrip(req)
+	}
+
+	resp, err = rh.Transport.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusNotModified, http.StatusUseProxy, http.StatusTemporaryRedirect:
+		return nil, &RedirectError{StatusCode: resp.StatusCode}
+	}
+
+	return resp, err
+}
+
 //ParseArgs takes runtime arguments and converts into state
 func ParseArgs() *State {
 	var codes string
 	var wordlist string
 	var URL string
+	var proxy string
+	var proxyUrlFunc func(*http.Request) (*url.URL, error)
+
 	valid := true
 	s := State{
 		StatusCodes: IntSet{set: map[int]bool{}},
@@ -222,11 +264,13 @@ func ParseArgs() *State {
 
 	flag.IntVar(&s.Threads, "t", 10, "Number of concurrent threads")
 	flag.BoolVar(&s.Verbose, "v", false, "Verbose output (errors)")
-	flag.StringVar(&s.ProxyURL, "p", "", "Proxy to use for requests [http(s)://host:port]")
+	flag.StringVar(&proxy, "p", "", "Proxy to use for requests [http(s)://host:port]")
 	flag.StringVar(&s.OutputFileName, "o", "", "Output file to write results to (defaults to stdout)")
 	flag.StringVar(&URL, "u", "", "The target URL or Domain")
 	flag.StringVar(&wordlist, "w", "", "Path to the wordlist")
 	flag.StringVar(&codes, "s", "200,204,301,302,307", "Positive status codes")
+	flag.BoolVar(&s.FollowRedirect, "r", false, "Follow redirects")
+	flag.BoolVar(&s.InsecureSSL, "k", false, "Skip SSL certificate verification")
 	flag.Parse()
 
 	if s.Threads < 0 {
@@ -248,6 +292,33 @@ func ParseArgs() *State {
 	} else {
 		s.Wordlist.Add(URL)
 	}
+
+	if proxy != "" {
+		proxyUrlFunc = http.ProxyFromEnvironment
+		proxyURL, err := url.Parse(proxy)
+		if err != nil {
+			color.Red("[!] Proxy URL is invalid")
+		}
+		s.ProxyURL = proxyURL
+		proxyUrlFunc = http.ProxyURL(s.ProxyURL)
+	}
+
+	s.Client = &http.Client{
+		Transport: &RedirectHandler{
+			State: &s,
+			Transport: &http.Transport{
+				Proxy: proxyUrlFunc,
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: s.InsecureSSL,
+				},
+			},
+		}}
+
+	// code, _ := GoGet(&s, s.Url, "", s.Cookies)
+	// if code == nil {
+	// 	fmt.Println("[-] Unable to connect:", s.Url)
+	// 	valid = false
+	// }
 
 	if valid {
 		PrintBanner(&s)
@@ -272,7 +343,7 @@ func PrintBanner(state *State) {
 func PrintOptions(state *State) {
 	if state.Verbose {
 		fmt.Println("")
-		if state.ProxyURL != "" {
+		if state.ProxyURL != nil && state.ProxyURL.String() != "" {
 			color.Cyan("[+] Proxy enabled: %s\n", state.ProxyURL)
 		}
 
