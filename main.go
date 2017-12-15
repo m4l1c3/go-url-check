@@ -16,7 +16,10 @@ import (
 	color "github.com/fatih/color"
 )
 
+//ProcessorFunc type for delegating operations in state to a function that accepts these parameters
 type ProcessorFunc func(entity string, resultChan chan<- URLResponse, state *State)
+
+//PrintResultFunc type for delegating print operations in state to a function that accepts these parameters
 type PrintResultFunc func(response *URLResponse)
 
 // type ProxyUrlFunc func(*http.Request) (*url.Url, error)
@@ -91,11 +94,13 @@ type State struct {
 	InsecureSSL    bool
 }
 
+//RedirectHandler struct for handling http redirects during runtime
 type RedirectHandler struct {
 	Transport http.RoundTripper
 	State     *State
 }
 
+//RedirectError struct for status codes in errors
 type RedirectError struct {
 	StatusCode int
 }
@@ -226,6 +231,7 @@ func (e *RedirectError) Error() string {
 	return fmt.Sprintf("Redirect code: %d", e.StatusCode)
 }
 
+//RoundTrip used to handle following redirects during execution
 func (rh *RedirectHandler) RoundTrip(req *http.Request) (resp *http.Response, err error) {
 	if rh.State.FollowRedirect {
 		return rh.Transport.RoundTrip(req)
@@ -251,7 +257,7 @@ func ParseArgs() *State {
 	var wordlist string
 	var URL string
 	var proxy string
-	var proxyUrlFunc func(*http.Request) (*url.URL, error)
+	var proxyURLFunc func(*http.Request) (*url.URL, error)
 
 	valid := true
 	s := State{
@@ -294,20 +300,20 @@ func ParseArgs() *State {
 	}
 
 	if proxy != "" {
-		proxyUrlFunc = http.ProxyFromEnvironment
+		proxyURLFunc = http.ProxyFromEnvironment
 		proxyURL, err := url.Parse(proxy)
 		if err != nil {
 			color.Red("[!] Proxy URL is invalid")
 		}
 		s.ProxyURL = proxyURL
-		proxyUrlFunc = http.ProxyURL(s.ProxyURL)
+		proxyURLFunc = http.ProxyURL(s.ProxyURL)
 	}
 
 	s.Client = &http.Client{
 		Transport: &RedirectHandler{
 			State: &s,
 			Transport: &http.Transport{
-				Proxy: proxyUrlFunc,
+				Proxy: proxyURLFunc,
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: s.InsecureSSL,
 				},
