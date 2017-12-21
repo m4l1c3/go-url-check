@@ -434,7 +434,7 @@ func PrintResponse(response *URLResponse) {
 //PrefixURL with http if missing
 func PrefixURL(url string) string {
 	if !strings.HasPrefix(url, "http") {
-		url = "http://" + url
+		url = "https://" + url
 	}
 	return url
 }
@@ -455,7 +455,7 @@ func Request(url string) *http.Response {
 
 //Check does a GET for a URL
 func Check(url string, responseChannel chan<- URLResponse, state *State) {
-	PrefixURL(url)
+	url = PrefixURL(url)
 	resp := Request(url)
 	var r URLResponse
 
