@@ -445,7 +445,9 @@ func Request(url string) *http.Response {
 
 	if err != nil {
 		color.Red("Error checking URL: %s\n", err)
+		return nil
 	}
+
 	defer resp.Body.Close()
 
 	return resp
@@ -455,11 +457,19 @@ func Request(url string) *http.Response {
 func Check(url string, responseChannel chan<- URLResponse, state *State) {
 	PrefixURL(url)
 	resp := Request(url)
+	var r URLResponse
 
-	// PrintResponse(url, resp.Status)
-	r := URLResponse{
-		StatusCode: resp.Status,
-		URL:        url,
+	if resp != nil {
+		// PrintResponse(url, resp.Status)
+		r = URLResponse{
+			StatusCode: resp.Status,
+			URL:        url,
+		}
+	} else {
+		r = URLResponse{
+			StatusCode: "500 Error",
+			URL:        url,
+		}
 	}
 	state.Responses.Add(r)
 	responseChannel <- r
