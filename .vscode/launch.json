@@ -12,9 +12,9 @@
             "remotePath": "",
             "port": 2345,
             "host": "127.0.0.1",
-            "program": "${fileDirname}",
+            "program": "${workspaceRoot}/main.go",
             "env": {},
-            "args": ["-w", "./fixtures/wordlist.txt", "-v", "-o", "blah.txt"],
+            "args": ["-w", "/Users/m4l1c3/Dev/domain/data_output", "-v", "-o", "blah.txt"],
             "showLog": true
         }
     ]

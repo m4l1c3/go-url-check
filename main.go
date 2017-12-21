@@ -2,9 +2,9 @@ package main
 
 import (
 	"bufio"
-	"crypto/tls"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	color "github.com/fatih/color"
 )
@@ -21,8 +23,6 @@ type ProcessorFunc func(entity string, resultChan chan<- URLResponse, state *Sta
 
 //PrintResultFunc type for delegating print operations in state to a function that accepts these parameters
 type PrintResultFunc func(response *URLResponse)
-
-// type ProxyUrlFunc func(*http.Request) (*url.Url, error)
 
 //IntSet struct for map of integers
 type IntSet struct {
@@ -65,6 +65,67 @@ func (set *URLResponseSet) Contains(r URLResponse) bool {
 	return found
 }
 
+// Small helper to combine URL with URI then make a
+// request to the generated location.
+func GoGet(s *State, url, uri, cookie string) (*int, *int64) {
+	return MakeRequest(s, url+uri, cookie)
+}
+
+// Make a request to the given URL.
+func MakeRequest(s *State, fullUrl, cookie string) (*int, *int64) {
+	req, err := http.NewRequest("GET", fullUrl, nil)
+
+	if err != nil {
+		return nil, nil
+	}
+
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+
+	// if s.UserAgent != "" {
+	// 	req.Header.Set("User-Agent", s.UserAgent)
+	// }
+
+	// if s.Username != "" {
+	// 	req.SetBasicAuth(s.Username, s.Password)
+	// }
+
+	resp, err := s.Client.Do(req)
+
+	if err != nil {
+		if ue, ok := err.(*url.Error); ok {
+
+			if strings.HasPrefix(ue.Err.Error(), "x509") {
+				fmt.Println("[-] Invalid certificate")
+			}
+
+			if re, ok := ue.Err.(*RedirectError); ok {
+				return &re.StatusCode, nil
+			}
+		}
+		return nil, nil
+	}
+
+	defer resp.Body.Close()
+
+	var length *int64 = nil
+
+	if s.IncludeLength {
+		length = new(int64)
+		if resp.ContentLength <= 0 {
+			body, err := ioutil.ReadAll(resp.Body)
+			if err == nil {
+				*length = int64(utf8.RuneCountInString(string(body)))
+			}
+		} else {
+			*length = resp.ContentLength
+		}
+	}
+
+	return &resp.StatusCode, length
+}
+
 //ContainsAny Check if any of the elements exist
 func (set *URLResponseSet) ContainsAny(rr []URLResponse) bool {
 	for _, r := range rr {
@@ -88,10 +149,10 @@ type State struct {
 	SignalChannel  chan os.Signal
 	Printer        PrintResultFunc
 	Processor      ProcessorFunc
-	ProxyURL       *url.URL
 	Client         *http.Client
 	FollowRedirect bool
 	InsecureSSL    bool
+	IncludeLength  bool
 }
 
 //RedirectHandler struct for handling http redirects during runtime
@@ -251,26 +312,32 @@ func (rh *RedirectHandler) RoundTrip(req *http.Request) (resp *http.Response, er
 	return resp, err
 }
 
+func elapsed() func() {
+	start := time.Now()
+	return func() {
+		fmt.Println("")
+		color.HiMagenta("Total runtime: %v\n", time.Since(start))
+	}
+}
+
 //ParseArgs takes runtime arguments and converts into state
 func ParseArgs() *State {
 	var codes string
 	var wordlist string
 	var URL string
-	var proxy string
-	var proxyURLFunc func(*http.Request) (*url.URL, error)
 
 	valid := true
 	s := State{
-		StatusCodes: IntSet{set: map[int]bool{}},
-		Wordlist:    StringSet{set: map[string]bool{}},
-		Responses:   URLResponseSet{set: map[URLResponse]bool{}},
-		Processor:   Check,
-		Printer:     PrintResponse,
+		StatusCodes:   IntSet{set: map[int]bool{}},
+		Wordlist:      StringSet{set: map[string]bool{}},
+		Responses:     URLResponseSet{set: map[URLResponse]bool{}},
+		Processor:     Check,
+		Printer:       PrintResponse,
+		IncludeLength: true,
 	}
 
 	flag.IntVar(&s.Threads, "t", 10, "Number of concurrent threads")
 	flag.BoolVar(&s.Verbose, "v", false, "Verbose output (errors)")
-	flag.StringVar(&proxy, "p", "", "Proxy to use for requests [http(s)://host:port]")
 	flag.StringVar(&s.OutputFileName, "o", "", "Output file to write results to (defaults to stdout)")
 	flag.StringVar(&URL, "u", "", "The target URL or Domain")
 	flag.StringVar(&wordlist, "w", "", "Path to the wordlist")
@@ -299,33 +366,6 @@ func ParseArgs() *State {
 		s.Wordlist.Add(URL)
 	}
 
-	if proxy != "" {
-		proxyURLFunc = http.ProxyFromEnvironment
-		proxyURL, err := url.Parse(proxy)
-		if err != nil {
-			color.Red("[!] Proxy URL is invalid")
-		}
-		s.ProxyURL = proxyURL
-		proxyURLFunc = http.ProxyURL(s.ProxyURL)
-	}
-
-	s.Client = &http.Client{
-		Transport: &RedirectHandler{
-			State: &s,
-			Transport: &http.Transport{
-				Proxy: proxyURLFunc,
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: s.InsecureSSL,
-				},
-			},
-		}}
-
-	// code, _ := GoGet(&s, s.Url, "", s.Cookies)
-	// if code == nil {
-	// 	fmt.Println("[-] Unable to connect:", s.Url)
-	// 	valid = false
-	// }
-
 	if valid {
 		PrintBanner(&s)
 		return &s
@@ -349,10 +389,6 @@ func PrintBanner(state *State) {
 //PrintOptions print enabled options to user
 func PrintOptions(state *State) {
 	if state.Verbose {
-		if state.ProxyURL != nil && state.ProxyURL.String() != "" {
-			color.Cyan("[+] Proxy enabled: %s\n", state.ProxyURL)
-		}
-
 		if state.Threads > 0 {
 			color.Cyan("[+] Number of threads: %d\n", state.Threads)
 		}
@@ -361,9 +397,9 @@ func PrintOptions(state *State) {
 			color.Cyan("[+] Output file: %s\n", state.OutputFileName)
 		}
 
-		if len(state.Wordlist.set) > 0 {
-			color.Cyan("[+] Wordlist: %s\n", state.Wordlist.JoinSet())
-		}
+		// if len(state.Wordlist.set) > 0 {
+		// 	color.Cyan("[+] Wordlist: %s\n", state.Wordlist.JoinSet())
+		// }
 
 		if len(state.StatusCodes.set) > 0 {
 			color.Cyan("[+] StatusCodes: %s\n", state.StatusCodes.JoinSet())
@@ -504,6 +540,7 @@ func Process(state *State) {
 }
 
 func main() {
+	defer elapsed()()
 	state := ParseArgs()
 
 	if state != nil {
