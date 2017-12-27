@@ -19,7 +19,7 @@ import (
 )
 
 //ProcessorFunc type for delegating operations in state to a function that accepts these parameters
-type ProcessorFunc func(entity string, resultChan chan<- URLResponse, state *State)
+type ProcessorFunc func(entity string, state *State) []URLResponse
 
 //PrintResultFunc type for delegating print operations in state to a function that accepts these parameters
 type PrintResultFunc func(response *URLResponse)
@@ -144,15 +144,16 @@ type State struct {
 	Wordlist       StringSet
 	StatusCodes    IntSet
 	WriteOutput    bool
-	Responses      URLResponseSet
+	Responses      []URLResponse
 	ShouldClose    bool
 	SignalChannel  chan os.Signal
-	Printer        PrintResultFunc
+	// Printer        PrintResultFunc
 	Processor      ProcessorFunc
 	Client         *http.Client
 	FollowRedirect bool
 	InsecureSSL    bool
 	IncludeLength  bool
+	Throttle       bool
 }
 
 //RedirectHandler struct for handling http redirects during runtime
@@ -232,15 +233,15 @@ func WriteOutput(state *State) (bool, error) {
 	if state.OutputFileName != "" {
 		outputFile, err := os.Create(state.OutputFileName)
 		if err != nil {
-			color.Red("[!] Unable to write to %s, falling back to stdout.\n", state.OutputFileName)
+			color.HiRed("[!] Unable to write to %s, falling back to stdout.\n", state.OutputFileName)
 			return false, err
 		}
 		defer outputFile.Close()
 
-		for u := range state.Responses.set {
-			write, err := outputFile.WriteString(u.StatusCode + " " + u.URL + "\n")
+		for u := range state.Responses {
+			write, err := outputFile.WriteString(fmt.Sprintf("%s %s\n", state.Responses[u].URL, state.Responses[u].StatusCode))
 			if err != nil {
-				color.Red("Error writing file %s\n", err)
+				color.HiRed("Error writing file %s\n", err)
 			}
 			if write > 0 {
 				continue
@@ -325,14 +326,15 @@ func ParseArgs() *State {
 	var codes string
 	var wordlist string
 	var URL string
+	var responses []URLResponse
 
 	valid := true
 	s := State{
-		StatusCodes:   IntSet{set: map[int]bool{}},
-		Wordlist:      StringSet{set: map[string]bool{}},
-		Responses:     URLResponseSet{set: map[URLResponse]bool{}},
-		Processor:     Check,
-		Printer:       PrintResponse,
+		StatusCodes: IntSet{set: map[int]bool{}},
+		Wordlist:    StringSet{set: map[string]bool{}},
+		Responses:   responses,
+		Processor:   Check,
+		// Printer:       PrintResponse,
 		IncludeLength: true,
 	}
 
@@ -344,15 +346,16 @@ func ParseArgs() *State {
 	flag.StringVar(&codes, "s", "200,204,301,302,307", "Positive status codes")
 	flag.BoolVar(&s.FollowRedirect, "r", false, "Follow redirects")
 	flag.BoolVar(&s.InsecureSSL, "k", false, "Skip SSL certificate verification")
+	flag.BoolVar(&s.Throttle, "-r", false, "Enable throttling or rate limiting")
 	flag.Parse()
 
 	if s.Threads < 0 {
-		color.Red("[!] Invalid number of threads (-t) %d\n", s.Threads)
+		color.HiRed("[!] Invalid number of threads (-t) %d\n", s.Threads)
 		valid = false
 	}
 
 	if URL == "" && wordlist == "" {
-		color.Red("[!] Unable to start checking both URL (-u): %s and Wordlist are invalid (-w) %s\n", URL, wordlist)
+		color.HiRed("[!] Unable to start checking both URL (-u): %s and Wordlist are invalid (-w) %s\n", URL, wordlist)
 		valid = false
 	}
 
@@ -362,6 +365,10 @@ func ParseArgs() *State {
 
 	if wordlist != "" {
 		ParseWordlist(&s, wordlist)
+		if len(s.Wordlist.set) < 1 {
+			valid = false
+			color.HiRed("[!] Unable to start checking unable to parse wordlist (-w) %s\n", wordlist)
+		}
 	} else {
 		s.Wordlist.Add(URL)
 	}
@@ -374,14 +381,26 @@ func ParseArgs() *State {
 	return nil
 }
 
+//func PrintRuler prints a horizontal ruler
+func PrintRuler() {
+	color.HiCyan("-----------------------------------------------------------------------")
+}
+
 //PrintBanner prints the app banner if verbose is true
 func PrintBanner(state *State) {
 	if state.Verbose {
-		color.Cyan("--------------------------------------------------------------")
-		PrintOptions(state)
+		PrintRuler()
+		color.HiCyan("--               _               _                  _                --")
+		color.HiCyan("--              | |             | |                | |               --")
+		color.HiCyan("--  _   _  _ __ | | ______  ___ | |__    ___   ___ | | __ ___  _ __  --")
+		color.HiCyan("-- | | | || '__|| ||______|/ __|| '_ \\  / _ \\ / __|| |/ // _ \\| '__| --")
+		color.HiCyan("-- | |_| || |   | |       | (__ | | | ||  __/| (__ |   <|  __/| |    --")
+		color.HiCyan("--  \\__,_||_|   |_|        \\___||_| |_| \\___| \\___||_|\\_\\\\___||_|    --")
+		color.HiCyan("--                                                                   --")
+		color.HiCyan("-- Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check    --")
+		PrintRuler()
 		fmt.Println("")
-		color.Cyan("Go URL Check by m4l1c3: https://github.com/m4l1c3/go-url-check")
-		color.Cyan("--------------------------------------------------------------")
+		PrintOptions(state)
 		fmt.Println("")
 	}
 }
@@ -390,19 +409,19 @@ func PrintBanner(state *State) {
 func PrintOptions(state *State) {
 	if state.Verbose {
 		if state.Threads > 0 {
-			color.Cyan("[+] Number of threads: %d\n", state.Threads)
+			color.HiCyan("[+] Number of threads: %d\n", state.Threads)
 		}
 
 		if state.OutputFileName != "" {
-			color.Cyan("[+] Output file: %s\n", state.OutputFileName)
+			color.HiCyan("[+] Output file: %s\n", state.OutputFileName)
 		}
 
 		// if len(state.Wordlist.set) > 0 {
-		// 	color.Cyan("[+] Wordlist: %s\n", state.Wordlist.JoinSet())
+		// 	color.HiCyan("[+] Wordlist: %s\n", state.Wordlist.JoinSet())
 		// }
 
 		if len(state.StatusCodes.set) > 0 {
-			color.Cyan("[+] StatusCodes: %s\n", state.StatusCodes.JoinSet())
+			color.HiCyan("-- [+] StatusCodes: %s\n", state.StatusCodes.JoinSet())
 		}
 	}
 }
@@ -416,7 +435,7 @@ func PrintResponse(response *URLResponse) {
 	if err == nil {
 		switch {
 		case status > 499:
-			color.Red("[!] %s %s\n", url, statusCode)
+			color.HiRed("[!] %s %s\n", url, statusCode)
 			break
 		case status > 399:
 			color.Magenta("[+] %s %s\n", url, statusCode)
@@ -444,35 +463,33 @@ func Request(url string) *http.Response {
 	resp, err := http.Get(url)
 
 	if err != nil {
-		color.Red("Error checking URL: %s\n", err)
 		return nil
 	}
 
-	defer resp.Body.Close()
+	if err == nil {
+		defer resp.Body.Close()
+	}
 
 	return resp
 }
 
 //Check does a GET for a URL
-func Check(url string, responseChannel chan<- URLResponse, state *State) {
+func Check(url string, state *State) []URLResponse {
 	url = PrefixURL(url)
 	resp := Request(url)
 	var r URLResponse
 
 	if resp != nil {
-		// PrintResponse(url, resp.Status)
 		r = URLResponse{
 			StatusCode: resp.Status,
 			URL:        url,
 		}
-	} else {
-		r = URLResponse{
-			StatusCode: "500 Error",
-			URL:        url,
-		}
+		PrintResponse(&r)
+		return append(state.Responses, r)
 	}
-	state.Responses.Add(r)
-	responseChannel <- r
+	return state.Responses
+
+	// responseChannel <- r
 }
 
 //StartSignalHandler creates a handler to watch for CTRL+C
@@ -483,7 +500,7 @@ func StartSignalHandler(state *State) {
 		for _ = range state.SignalChannel {
 			// caught CTRL+C
 			if state.Verbose {
-				color.Cyan("[!] Keyboard interrupt detected, terminating.")
+				color.HiCyan("[!] Keyboard interrupt detected, terminating.")
 				state.ShouldClose = true
 			}
 		}
@@ -494,14 +511,14 @@ func StartSignalHandler(state *State) {
 func Process(state *State) {
 	// channels used for comms
 	urlChannel := make(chan string, state.Threads)
-	responseChannel := make(chan URLResponse)
+	// responseChannel := make(chan URLResponse)
 
 	// Use a wait group for waiting for all threads
 	// to finish
 	processorGroup := new(sync.WaitGroup)
 	processorGroup.Add(state.Threads)
-	printerGroup := new(sync.WaitGroup)
-	printerGroup.Add(1)
+	// printerGroup := new(sync.WaitGroup)
+	// printerGroup.Add(1)
 
 	for i := 0; i < state.Threads; i++ {
 		go func() {
@@ -514,7 +531,7 @@ func Process(state *State) {
 				}
 
 				// Mode-specific processing
-				state.Processor(url, responseChannel, state)
+				state.Responses = state.Processor(url, state)
 			}
 
 			// Indicate to the wait group that the thread
@@ -525,24 +542,37 @@ func Process(state *State) {
 
 	// Single goroutine which handles the results as they
 	// appear from the worker threads.
-	go func() {
-		for r := range responseChannel {
-			state.Printer(&r)
-		}
-		printerGroup.Done()
-	}()
+	// go func() {
+	// 	for r := range responseChannel {
+	// 		state.Printer(&r)
+	// 	}
+	// 	printerGroup.Done()
+	// }()
+	var i int
+	sleepTime := time.Duration(5) * time.Second
 
 	for word := range state.Wordlist.set {
+		if i > 100 && i%100 == 0 {
+			if state.Verbose {
+				color.HiGreen("%d out of %d URLs checked.", i, len(state.Wordlist.set))
+			}
+			if state.Throttle {
+				color.HiGreen("Pausing for %d ... seconds\n", sleepTime/time.Second)
+				time.Sleep(sleepTime)
+			}
+		}
+
 		if state.ShouldClose {
 			break
 		}
 		urlChannel <- word
+		i++
 	}
 
 	close(urlChannel)
 	processorGroup.Wait()
-	close(responseChannel)
-	printerGroup.Wait()
+	// close(responseChannel)
+	// printerGroup.Wait()
 
 	if state.WriteOutput {
 		WriteOutput(state)
